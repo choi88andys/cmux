@@ -242,6 +242,29 @@ extension TerminalSurface {
             lastYScale = yScale
         }
 
+        // A backing-scale change (moving the window between displays of
+        // different DPI) updates the layer scale and grid above, but Ghostty's
+        // renderer is change-driven: its set_size / set_content_scale callbacks
+        // early-return when the pixel size and integer DPI both round to
+        // unchanged, so no frame is drawn and a stale frame at the OLD scale
+        // stays on screen until an external wakeup (the manual Ctrl+O /
+        // focus-change "fix"). The size-changed branch above only refreshes
+        // manualIO surfaces — a scale-only move (no grid change), and every
+        // non-manualIO surface, gets no repaint. Force an async refresh on any
+        // scale change so a display move always repaints. It is a rare event,
+        // so the (occasionally redundant for manualIO) refresh is cheap; async,
+        // never render_now, to avoid the main-thread/renderer-thread shaper
+        // double-free noted above.
+        if scaleChanged {
+            ghostty_surface_refresh(surface)
+            #if DEBUG
+            Self.sizeLog(
+                "updateSize-scale-repaint surface=\(id.uuidString.prefix(8)) " +
+                "xScale=\(xScale) yScale=\(yScale)"
+            )
+            #endif
+        }
+
         // Remote tmux display surfaces: keep the remote tmux client sized to
         // the rendered grid, and report only real cell-grid changes while the
         // surface is on screen.
